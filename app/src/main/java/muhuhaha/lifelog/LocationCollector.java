@@ -1,10 +1,7 @@
 package muhuhaha.lifelog;
 
 import android.app.IntentService;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.location.Location;
 import android.os.Bundle;
 import android.os.ResultReceiver;
@@ -12,7 +9,6 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.Status;
@@ -20,27 +16,40 @@ import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+
 /**
  * Created by muhuhaha on 2015-11-07.
  */
 public class LocationCollector extends IntentService implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
 	private static final String TAG = "LifeLog_LocationCollector";
-	private boolean isRunning = true;
 	protected GoogleApiClient mGoogleApiClient;
+	LocationRequest mLocationRequest;
+	ResultReceiver receiver = null;
+
 	private static final long INTERVAL_LONG = 1000 * 60 * 3; // 3 minutes
 	private static final long INTERVAL_SHORT = 1000 * 1; // 1 sec
 	private static final long INTERVAL_MEDIUM = 1000 * 60; // 1 minute
 	private static final long DISPLACEMENT = 10;
-	LocationRequest mLocationRequest;
-	ResultReceiver receiver = null;
 
 	public static final int RESULT_LOCATION = 0;
-	public static final int RESULT_AAA = 1;
+	public static final int RESULT_FIRSTTIME = 1;
 	public static final int RESULT_BBB = 2;
+
+	private ArrayList<Location> mLocationList = new ArrayList<Location>();
+	private Location mLastLocation;
+	private LocationStore locationStore;
+	private float mTotalDistance = 0;
+	private int mIndex = 0;
 
 	public LocationCollector() {
 		super("LocationCollector");
 		Log.d(TAG, "[LocationCollector] constructed!");
+
+		locationStore = LocationStore.getInstance();
 	}
 
 	/**
@@ -60,12 +69,11 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 
 		String action = intent.getAction();
 		receiver = intent.getParcelableExtra("receiver");
-		Log.d(TAG, "[onHandleIntent] "+action);
+		Log.d(TAG, "[onHandleIntent] " + action);
 
 		if (action.equals("construct")) {
 			createLocationRequest();
 			buildGoogleApiClient();
-
 			mGoogleApiClient.connect();
 		}
 	}
@@ -79,13 +87,14 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 	}
 
 	public void onStop() {
+		Log.d(TAG, "[onStop] am i called?!");
+
 		if (mGoogleApiClient.isConnected()) {
 			mGoogleApiClient.disconnect();
 		}
 	}
 
 	public void onDestroy() {
-		isRunning = false;
 	}
 
 	@Override
@@ -110,11 +119,24 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 	public void onLocationChanged(Location location) {
 		Log.d(TAG, "[onLocationChanged] Location changed!");
 
-		// location intent
-		//setLocationOnMap(location);
-		Bundle b = new Bundle();
-		b.putParcelable("location", location);
-		receiver.send(RESULT_LOCATION, b);
+		boolean isAvailableLocation = manageLocation(location);
+
+		if (isAvailableLocation) {
+			//setLocationOnMap(location);
+			Bundle b = new Bundle();
+			b.putParcelable("location", location);
+			receiver.send(RESULT_LOCATION, b);
+
+			String result = new String();
+			DateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+
+			Date date = new Date(location.getTime());
+			String formatted = format.format(date);
+
+			mIndex++;
+			result += mIndex + "::" + formatted + "::" + location.getLatitude() + "::" + location.getLongitude() + "::" + location.getSpeed() +" :: Total distance :: " + mTotalDistance +"\n";
+			locationStore.writeFile(result);
+		}
 	}
 
 	@Override
@@ -130,16 +152,43 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 		Log.d(TAG, "[startLocationUpdates] location update started");
 	}
 
-	BroadcastReceiver mMapsBroadcastReceiver = new BroadcastReceiver(){
-		public void onReceive(Context context, Intent intent){
-			Log.d(TAG, "[onReceive] onReceiving...");
+	private boolean manageLocation(Location mCurrentLocation) {
+		Log.d(TAG, "[manageLocation] location in managing");
+		boolean result = false;
 
-			String action = intent.getAction();
+		// for the first time
+		if (mLastLocation == null && mCurrentLocation != null) {
+			Log.d(TAG, "[manageLocation] first location received");
+			result = true;
 
-			if (action.equals("onStop")) {
-				onStop();
-			}
-
+			Bundle b = new Bundle();
+			receiver.send(RESULT_FIRSTTIME, b);
 		}
-	};
+
+		// for the second and more times
+		if (mLastLocation != null && mCurrentLocation != null) {
+			Log.d(TAG, "[manageLocation] other location received");
+			float distance = mCurrentLocation.distanceTo(mLastLocation);
+			mTotalDistance += distance;
+
+			result = true;
+/*
+			// 일단 180km 이하로 이동한 경우만 처리한다. 위치 튀는 것 방지.
+			if (distance > 10 && distance < 1000) {
+				Log.d(TAG, "[isMoving] distance between 2 points : " + distance);
+				mTotalDistance += distance;
+				return true;
+			}
+*/
+		}
+
+		if (result) {
+			Log.d(TAG, "[manageLocation] location is stored");
+
+			mLastLocation = mCurrentLocation;
+			mLocationList.add(mLastLocation);
+		}
+
+		return result;
+	}
 }

@@ -26,17 +26,14 @@ import java.util.Date;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, LocationReceiver.Receiver {
 	private static final String TAG = "LifeLog_Map";
-	private ArrayList<Location> mLocationList = new ArrayList<Location>();
 
 	private final float FAST_SPEED = 3;
-	private Location mLastLocation;
 
 	private GoogleMap mMap;
 	private PolylineOptions polylineOptions;
 	private LocationReceiver mReceiver;
-	private LocationStore locationStore;
-
-	private float mTotalDistance = 0;
+	private boolean mFirstLocation = false;
+	private BackPressCloseHandler backPressCloseHandler;
 
 	//    private static int markerSequence;
 	//    String mMarkerString;
@@ -65,7 +62,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		intent.putExtra("receiver", mReceiver);
 		startService(intent);
 
-		locationStore = LocationStore.getInstance();
+		backPressCloseHandler = new BackPressCloseHandler(this);
 	}
 
 	@Override
@@ -74,36 +71,39 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
 		super.onStart();
 
+		/*
 		final Intent intent = new Intent();
 		intent.setAction("onStart");
 		sendBroadcast(intent);
+		*/
 	}
 
 	@Override
 	protected void onStop() {
+		Log.d(TAG, "[onStop] onStop...");
 		super.onStop();
 	}
 
 	protected void onDestroy() {
-		int index = 0;
-		String result = new String();
+		Log.d(TAG, "[onDestroy] onDestroy...");
 
-		DateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
-
-		for (Location location : mLocationList) {
-			Date date = new Date(location.getTime());
-			String formatted = format.format(date);
-
-			index++;
-			result += index + "::" + formatted + "::" + location.getLatitude() + "::" + location.getLongitude() + "::" + location.getSpeed() +"\n";
-		}
-
-		result += "Total distance :: " + mTotalDistance;
-
-		locationStore.writeFile(result);
-		Log.d(TAG, "[onDestroy] "+ result);
-
+		/*
+		final Intent intent = new Intent();
+		intent.setAction("onDestroy");
+		sendBroadcast(intent);
+*/
 		super.onDestroy();
+	}
+
+	@Override
+	public void onBackPressed() {
+		Log.d(TAG, "[onBackPressed] back pressed!!!");
+
+		final Intent intent = new Intent();
+		intent.setAction("store");
+		sendBroadcast(intent);
+
+		backPressCloseHandler.onBackPressed();
 	}
 
 	@Override
@@ -114,7 +114,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		mMap.setMyLocationEnabled(true);
 		mMap.getUiSettings().setZoomControlsEnabled(true);
 
-		//mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 13));
+		//
 
 		polylineOptions = new PolylineOptions();
 	}
@@ -137,20 +137,21 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 			Log.d(TAG, "[addLocationInfo] let's move to center");
 			LatLng currentLatLng = new LatLng(mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude());
 
-			if (isMoving(mCurrentLocation)) {
+			if (mFirstLocation) {
+				mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 13));
+				mFirstLocation = false;
+			}
+			else
 				mMap.moveCamera(CameraUpdateFactory.newLatLng(currentLatLng));
-				Log.d(TAG, "[addMarker] Move to current position");
 
-				if (mCurrentLocation.getSpeed() > FAST_SPEED) {
-					polylineOptions.add(currentLatLng);
-					Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.RED).geodesic(true));
-				} else {
-					polylineOptions.add(currentLatLng);
-					Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.GREEN).geodesic(true));
-				}
+			Log.d(TAG, "[addMarker] Move to current position");
 
-				mLastLocation = mCurrentLocation;
-				mLocationList.add(mLastLocation);
+			if (mCurrentLocation.getSpeed() > FAST_SPEED) {
+				polylineOptions.add(currentLatLng);
+				Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.RED).geodesic(true));
+			} else {
+				polylineOptions.add(currentLatLng);
+				Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.GREEN).geodesic(true));
 			}
 
 			//options.position(currentLatLng);
@@ -187,29 +188,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 				Location location = resultData.getParcelable("location");
 				addLocationInfo(location);
 				break;
+			case LocationCollector.RESULT_FIRSTTIME:
+				mFirstLocation = true;
+				break;
 			default:
 				break;
 		}
-	}
-
-	private boolean isMoving(Location mCurrentLocation) {
-		// for the first time
-		if (mLastLocation == null && mCurrentLocation != null) {
-			return true;
-		}
-
-		// for the second and more times
-		if (mLastLocation != null && mCurrentLocation != null) {
-			float distance = mCurrentLocation.distanceTo(mLastLocation);
-
-			// 일단 180km 이하로 이동한 경우만 처리한다. 위치 튀는 것 방지.
-			if (distance > 10 && distance < 1000) {
-				Log.d(TAG, "[isMoving] distance between 2 points : " + distance);
-				mTotalDistance += distance;
-				return true;
-			}
-		}
-
-		return false;
 	}
 }

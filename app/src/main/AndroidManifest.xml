@@ -39,14 +39,14 @@
             android:label="LifeLog">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
-
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
         <service
             android:name=".LocationCollector"
-            android:exported="false"/>
+            android:exported="false">
+        </service>
     </application>
 
 </manifest>

@@ -40,11 +40,7 @@ public class LocationStore {
 		File file = new File(mPath, mFileName);
 
 		try {
-			if (!file.exists()) {
-				file.createNewFile();
-			}
-
-			fos = new FileOutputStream(file);
+			fos = new FileOutputStream(file, true);
 			fos.write(location.getBytes());
 			fos.close();
 			Log.d(TAG, "[writeFile] done!");
