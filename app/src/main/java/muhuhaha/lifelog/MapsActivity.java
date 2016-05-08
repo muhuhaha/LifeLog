@@ -3,9 +3,9 @@ package muhuhaha.lifelog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.location.Location;
+import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.app.FragmentActivity;
-import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -19,14 +19,8 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Polyline;
 import com.google.android.gms.maps.model.PolylineOptions;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, LocationReceiver.Receiver {
 	private static final String TAG = "LifeLog_Map";
-
 	private final float FAST_SPEED = 3;
 
 	private GoogleMap mMap;
@@ -40,6 +34,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
+		Log.d(TAG, "[onCreate] ... " + LocationCollector.mIsServiceRunning);
+
 		super.onCreate(savedInstanceState);
 
 		//show error dialog if GoolglePlayServices not available
@@ -49,61 +45,30 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
 		setContentView(R.layout.activity_maps);
 
+		// 지나간 길은 보여줘야지
+		polylineOptions = new PolylineOptions();
+		backPressCloseHandler = new BackPressCloseHandler(this);
+
 		// Obtain the SupportMapFragment and get notified when the map is ready to be used.
 		SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
 		mapFragment.getMapAsync(this);
 
+		Log.d(TAG, "[onCreate] newnewnew!");
+
+		// Location 정보를 받을 connection
 		mReceiver = new LocationReceiver(new Handler());
 		mReceiver.setReceiver(this);
 		// markerSequence = 0;
 
-		final Intent intent = new Intent(Intent.ACTION_SYNC, null, this, LocationCollector.class);
-		intent.setAction("construct");
-		intent.putExtra("receiver", mReceiver);
-		startService(intent);
+		Log.d(TAG, "[onCreate] newnewnew!");
 
-		backPressCloseHandler = new BackPressCloseHandler(this);
-	}
-
-	@Override
-	protected void onStart() {
-		Log.d(TAG, "[onStart] onStarting...");
-
-		super.onStart();
-
-		/*
-		final Intent intent = new Intent();
-		intent.setAction("onStart");
-		sendBroadcast(intent);
-		*/
-	}
-
-	@Override
-	protected void onStop() {
-		Log.d(TAG, "[onStop] onStop...");
-		super.onStop();
-	}
-
-	protected void onDestroy() {
-		Log.d(TAG, "[onDestroy] onDestroy...");
-
-		/*
-		final Intent intent = new Intent();
-		intent.setAction("onDestroy");
-		sendBroadcast(intent);
-*/
-		super.onDestroy();
-	}
-
-	@Override
-	public void onBackPressed() {
-		Log.d(TAG, "[onBackPressed] back pressed!!!");
-
-		final Intent intent = new Intent();
-		intent.setAction("store");
-		sendBroadcast(intent);
-
-		backPressCloseHandler.onBackPressed();
+		// 살아있는지 물어보지 않는다
+//		if (!LocationCollector.mIsServiceRunning) {
+			final Intent intent = new Intent(Intent.ACTION_SYNC, null, this, LocationCollector.class);
+			intent.setAction("construct");
+			intent.putExtra("receiver", mReceiver);
+			startService(intent);
+//		}
 	}
 
 	@Override
@@ -114,9 +79,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		mMap.setMyLocationEnabled(true);
 		mMap.getUiSettings().setZoomControlsEnabled(true);
 
-		//
-
-		polylineOptions = new PolylineOptions();
+//		Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.GREEN).geodesic(true));
+//		Log.d(TAG, "[addLocationInfo] addPolyline " + polyline.getPoints().size());
 	}
 
 	private void addLocationInfo(Location mCurrentLocation) {
@@ -144,21 +108,40 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 			else
 				mMap.moveCamera(CameraUpdateFactory.newLatLng(currentLatLng));
 
-			Log.d(TAG, "[addMarker] Move to current position");
+			Log.d(TAG, "[addLocationInfo] Move to current position");
 
-			if (mCurrentLocation.getSpeed() > FAST_SPEED) {
-				polylineOptions.add(currentLatLng);
-				Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.RED).geodesic(true));
-			} else {
-				polylineOptions.add(currentLatLng);
-				Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.GREEN).geodesic(true));
-			}
+			polylineOptions.add(currentLatLng);
+			Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.GREEN).geodesic(true));
+			Log.d(TAG, "[addLocationInfo] addPolyline " + polyline.getPoints().size());
 
 			//options.position(currentLatLng);
 			//Marker mapMarker = mMap.addMarker(options);
 			//mMarkerString = markerSequence + "";
 			//mapMarker.setTitle(mMarkerString);
 			//Log.d(TAG, "[addMarker] Marker added at " + mCurrentLocation.getLatitude() + "::" + mCurrentLocation.getLongitude());
+		}
+	}
+
+	private void addLocationInfo(LatLng mCurrentLocation) {
+		if (mCurrentLocation == null) {
+			Log.d(TAG, "[addLocationInfo] location is null!");
+			Toast.makeText(this, "No Location!", Toast.LENGTH_LONG).show();
+		}
+		else {
+			LatLng currentLatLng = mCurrentLocation;
+
+			if (mFirstLocation) {
+				mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 13));
+				mFirstLocation = false;
+			}
+			else
+				mMap.moveCamera(CameraUpdateFactory.newLatLng(currentLatLng));
+
+			Log.d(TAG, "[addLocationInfo] previous location " + currentLatLng.latitude + ", " + currentLatLng.longitude);
+
+			polylineOptions.add(currentLatLng);
+			Polyline polyline = mMap.addPolyline(polylineOptions.width(12).color(Color.GREEN).geodesic(true));
+			Log.d(TAG, "[addLocationInfo] Previously addPolyline " + polyline.getPoints().size());
 		}
 	}
 
@@ -191,8 +174,38 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 			case LocationCollector.RESULT_FIRSTTIME:
 				mFirstLocation = true;
 				break;
+			case LocationCollector.RESULT_PREVIOUS:
+				LatLng latlng = resultData.getParcelable("prevLocation");
+				addLocationInfo(latlng);
+				break;
 			default:
 				break;
 		}
+	}
+
+	//////////////////////////////////////////////////////////////////////////
+	// Life cycle management
+
+	@Override
+	protected void onStart() {
+		Log.d(TAG, "[onStart] onStarting...");
+		super.onStart();
+	}
+
+	@Override
+	protected void onStop() {
+		Log.d(TAG, "[onStop] onStop...");
+		super.onStop();
+	}
+
+	@Override
+	public void onBackPressed() {
+		Log.d(TAG, "[onBackPressed] back pressed!!!");
+//
+//		final Intent intent = new Intent();
+//		intent.setAction("store");
+//		sendBroadcast(intent);
+
+		backPressCloseHandler.onBackPressed();
 	}
 }

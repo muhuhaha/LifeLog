@@ -6,7 +6,6 @@ import android.location.Location;
 import android.os.Bundle;
 import android.os.ResultReceiver;
 import android.util.Log;
-import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -15,20 +14,25 @@ import com.google.android.gms.common.api.Status;
 import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.model.LatLng;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
+import java.util.List;
+
+import muhuhaha.lifelog.data.FileStore;
+import muhuhaha.lifelog.data.ILocationStore;
+import muhuhaha.lifelog.data.LocationInfo;
 
 /**
  * Created by muhuhaha on 2015-11-07.
  */
 public class LocationCollector extends IntentService implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
+	public static boolean mIsServiceRunning = false;
+	public static boolean mIsPreviousLocation = false;
 	private static final String TAG = "LifeLog_LocationCollector";
 	protected GoogleApiClient mGoogleApiClient;
 	LocationRequest mLocationRequest;
-	ResultReceiver receiver = null;
+	ResultReceiver mConnectionToActivity = null;
 
 	private static final long INTERVAL_LONG = 1000 * 60 * 3; // 3 minutes
 	private static final long INTERVAL_SHORT = 1000 * 1; // 1 sec
@@ -37,11 +41,13 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 
 	public static final int RESULT_LOCATION = 0;
 	public static final int RESULT_FIRSTTIME = 1;
-	public static final int RESULT_BBB = 2;
+	public static final int RESULT_PREVIOUS = 2;
+	public static final int RESULT_BBB = 3;
 
-	private ArrayList<Location> mLocationList = new ArrayList<Location>();
+	private List<LocationInfo> mLocationList = new ArrayList<LocationInfo>();
+	private List<LatLng> mPrevLocationList = new ArrayList<LatLng>();
 	private Location mLastLocation;
-	private LocationStore locationStore;
+	private ILocationStore mFileStore;
 	private float mTotalDistance = 0;
 	private int mIndex = 0;
 
@@ -49,7 +55,7 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 		super("LocationCollector");
 		Log.d(TAG, "[LocationCollector] constructed!");
 
-		locationStore = LocationStore.getInstance();
+		mFileStore = FileStore.getInstance();
 	}
 
 	/**
@@ -68,14 +74,30 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 		Log.d(TAG, "[onHandleIntent] received!");
 
 		String action = intent.getAction();
-		receiver = intent.getParcelableExtra("receiver");
+		mConnectionToActivity = intent.getParcelableExtra("receiver");
 		Log.d(TAG, "[onHandleIntent] " + action);
 
+		// 새롭게 서비스를 시작할때
 		if (action.equals("construct")) {
-			createLocationRequest();
 			buildGoogleApiClient();
 			mGoogleApiClient.connect();
+
+			Log.d(TAG, "[onHandleIntent] " + mPrevLocationList.size());
+			mPrevLocationList = mFileStore.readLocation();
+			Log.d(TAG, "[onHandleIntent] " + mPrevLocationList.size());
+
+			for (LatLng location : mPrevLocationList) {
+				Bundle bundle = new Bundle();
+				bundle.putParcelable("prevLocation", location);
+				mConnectionToActivity.send(RESULT_PREVIOUS, bundle);
+			}
+
+			Log.d(TAG, "[onHandleIntent] " + action);
+
+			createLocationRequest();
 		}
+
+		mIsServiceRunning = true;
 	}
 
 	protected void createLocationRequest() {
@@ -87,7 +109,7 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 	}
 
 	public void onStop() {
-		Log.d(TAG, "[onStop] am i called?!");
+		Log.d(TAG, "[onStop] Location store...");
 
 		if (mGoogleApiClient.isConnected()) {
 			mGoogleApiClient.disconnect();
@@ -95,24 +117,7 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 	}
 
 	public void onDestroy() {
-	}
-
-	@Override
-	public void onConnected(Bundle bundle) {
-		// Provides a simple way of getting a device's location and is well suited for
-		// applications that do not require a fine-grained location and that do not need location
-		// updates. Gets the best and most recent location currently available, which may be null
-		// in rare cases when a location is not available.
-		Log.d(TAG, "[onConnected] onConnected!");
-		startLocationUpdates();
-	}
-
-	@Override
-	public void onConnectionSuspended(int i) {
-		// The connection to Google Play services was lost for some reason. We call connect() to
-		// attempt to re-establish the connection.
-		Log.i(TAG, "Connection suspended");
-		mGoogleApiClient.connect();
+		Log.d(TAG, "[onDestroy] Location Collector destroyed...");
 	}
 
 	@Override
@@ -122,21 +127,14 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 		boolean isAvailableLocation = manageLocation(location);
 
 		if (isAvailableLocation) {
-			//setLocationOnMap(location);
-			Bundle b = new Bundle();
-			b.putParcelable("location", location);
-			receiver.send(RESULT_LOCATION, b);
-
-			String result = new String();
-			DateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
-
-			Date date = new Date(location.getTime());
-			String formatted = format.format(date);
-
-			mIndex++;
-			result += mIndex + "::" + formatted + "::" + location.getLatitude() + "::" + location.getLongitude() + "::" + location.getSpeed() +" :: Total distance :: " + mTotalDistance +"\n";
-			locationStore.writeFile(result);
+			sendLocation(location);
 		}
+	}
+
+	private void sendLocation(Location location) {
+		Bundle bundle = new Bundle();
+		bundle.putParcelable("location", location);
+		mConnectionToActivity.send(RESULT_LOCATION, bundle);
 	}
 
 	@Override
@@ -162,7 +160,7 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 			result = true;
 
 			Bundle b = new Bundle();
-			receiver.send(RESULT_FIRSTTIME, b);
+			mConnectionToActivity.send(RESULT_FIRSTTIME, b);
 		}
 
 		// for the second and more times
@@ -186,9 +184,32 @@ public class LocationCollector extends IntentService implements GoogleApiClient.
 			Log.d(TAG, "[manageLocation] location is stored");
 
 			mLastLocation = mCurrentLocation;
-			mLocationList.add(mLastLocation);
+
+			LocationInfo locationInfo = new LocationInfo(mIndex++, mLastLocation, mTotalDistance);
+			mLocationList.add(locationInfo);
+
+			mFileStore.storeLocation(locationInfo);
 		}
 
 		return result;
 	}
+
+	@Override
+	public void onConnected(Bundle bundle) {
+		// Provides a simple way of getting a device's location and is well suited for
+		// applications that do not require a fine-grained location and that do not need location
+		// updates. Gets the best and most recent location currently available, which may be null
+		// in rare cases when a location is not available.
+		Log.d(TAG, "[onConnected] onConnected!");
+		startLocationUpdates();
+	}
+
+	@Override
+	public void onConnectionSuspended(int i) {
+		// The connection to Google Play services was lost for some reason. We call connect() to
+		// attempt to re-establish the connection.
+		Log.i(TAG, "Connection suspended");
+		mGoogleApiClient.connect();
+	}
+
 }
